@@ -1,5 +1,7 @@
 # app/services/matching.py
 from __future__ import annotations
+import re
+from html import escape as h
 
 import asyncio
 from math import ceil
@@ -448,6 +450,92 @@ async def _get_avg_rating(user_id: int) -> tuple[Optional[float], int]:
         cnt = int(row[1] or 0)
         return avg, cnt
 
+# ========================= Текст/санитайз и карточки профиля =========================
+
+# Маскируем контакты в тексте (анонимность)
+USER_RE = re.compile(r'(?<!\w)@[\w_]{3,}', re.I)                 # @username
+TME_RE  = re.compile(r'(?:https?://)?t\.me/[^\s]+', re.I)        # t.me/...
+TGID_RE = re.compile(r'tg://user\?id=\d+', re.I)                 # tg://user?id=...
+MAIL_RE = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+', re.I)            # email
+PHON_RE = re.compile(r'(?<!\d)(?:\+?\d[\d\-\s()]{8,}\d)')        # телефон
+
+def sanitize_text(s: str) -> str:
+    s = TGID_RE.sub('[hidden]', s)
+    s = TME_RE.sub('[link hidden]', s)
+    s = USER_RE.sub('@hidden', s)
+    s = MAIL_RE.sub('[email hidden]', s)
+    s = PHON_RE.sub('[phone hidden]', s)
+    return s
+
+async def send_text_anonym(peer: int, text: str) -> None:
+    """Шлём текст без HTML, без превью и с защитой контента."""
+    await _bot().send_message(
+        peer,
+        sanitize_text(text),
+        parse_mode=None,
+        disable_web_page_preview=True,
+        protect_content=True,
+    )
+
+def clean_cap(caption: Optional[str]) -> Optional[str]:
+    """Санитайз подписи к медиа (если есть)."""
+    return sanitize_text(caption) if caption else None
+
+def format_profile_text(u: tuple) -> str:
+    """
+    Формат карточки профиля (как в исходном bot.py).
+    u = (tg_id, gender, seeking, reveal_ready, first_name, last_name,
+         faculty, age, about, username, photo1, photo2, photo3)
+    """
+    first = h((u[4] or "").strip())
+    last = h((u[5] or "").strip())
+    name = first or (last.split()[0] if last else "Без имени")
+
+    age = u[7]
+    age_str = str(age) if isinstance(age, int) else "—"
+    faculty = h((u[6] or "—").strip())
+
+    about = (u[8] or "").strip()
+    first_line, rest = "", ""
+    if about:
+        lines = [h(ln.strip()) for ln in about.splitlines() if ln.strip()]
+        if lines:
+            first_line = lines[0]
+            if len(lines) > 1:
+                rest = "\n".join(lines[1:])
+
+    header = f"{name}, {age_str}, 📍 {faculty}"
+    if first_line:
+        header += f" — {first_line}"
+    body = f"\n{rest}" if rest else ""
+    username = h((u[9] or "").strip())
+    tail = f"\n\n{username}" if username else ""
+    return header + body + tail
+
+# ========================= История матчей =========================
+
+async def last_match_info(user_id: int) -> Optional[tuple[int, int, int]]:
+    """
+    Возвращает (match_id, peer_id, active) для последнего матча пользователя.
+    active: 1/0 по столбцу matches.active
+    """
+    async with db() as conn:
+        cur = await conn.execute(
+            """
+            SELECT id, a_id, b_id, active
+            FROM matches
+            WHERE a_id=? OR b_id=?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, user_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        mid, a, b, active = int(row[0]), int(row[1]), int(row[2]), int(row[3])
+        peer = b if a == user_id else a
+        return mid, peer, active
 
 __all__ = [
     # init
@@ -457,4 +545,7 @@ __all__ = [
     "record_separation", "decay_blocks", "is_recent_blocked",
     "find_partner", "start_match", "try_match_now",
     "_materialize_session_if_needed",
+    # helpers just added
+    "sanitize_text", "send_text_anonym", "clean_cap",
+    "format_profile_text", "last_match_info",
 ]
