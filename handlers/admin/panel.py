@@ -1,20 +1,18 @@
 # app/handlers/admin/panel.py
-from __future__ import annotations
-
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
 from app.db.repo import ensure_user
-from app.keyboards.common import admin_main_kb, admin_reply_menu
+from app.keyboards.admin import admin_main_kb
 from app.services.admin import require_admin
 from app.services.matching import deny_actions_during_chat
 
 router = Router(name="admin_panel")
 
-
 @router.message(Command("admin"))
+@router.message(F.text.in_({"🛠 Админ", "🛠️ Админ", "Админ"}))
 async def admin_panel(m: Message, state: FSMContext):
     if await deny_actions_during_chat(m):
         return
@@ -23,7 +21,6 @@ async def admin_panel(m: Message, state: FSMContext):
         return
     await state.clear()
     await m.answer("🛠 Панель администратора", reply_markup=admin_main_kb())
-
 
 @router.callback_query(F.data == "admin:home")
 async def admin_home(c: CallbackQuery, state: FSMContext):

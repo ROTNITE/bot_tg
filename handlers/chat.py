@@ -3,16 +3,11 @@ from __future__ import annotations
 
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardRemove  # ⬅️ ReplyKeyboardRemove берём из aiogram.types
-try:
-    # aiogram v3
-    from aiogram.dispatcher.event.bases import SkipHandler
-except Exception:
-    # на всякий случай, если у тебя v2
-    from aiogram.exceptions import SkipHandler  # type: ignore
+from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.filters import BaseFilter
 
 from app.keyboards.common import cancel_kb, main_menu, gender_self_kb
-from app.keyboards.admin import admin_reply_menu  # ⬅️
+from app.keyboards.admin import admin_reply_menu
 from app import config as cfg
 
 from app.services.feedback import send_post_chat_feedback
@@ -20,32 +15,19 @@ from app.services.matching import (
     active_peer, _materialize_session_if_needed, end_current_chat,
     record_separation, enqueue, try_match_now,
 )
-from app.services.inactivity import _stop_countdown as stop_countdown  # ⬅️ явный алиас
+from app.services.inactivity import _stop_countdown as stop_countdown
 from app.runtime import (
     DEADLINE, LAST_SHOWN, WARNED, COUNTDOWN_TASKS, COUNTDOWN_MSGS,
     _now as now_wall, _nowm, g_inactivity,
 )
-from app.db.repo import get_role, get_user  # ⬅️ get_user берём из repo
+from app.db.repo import get_role, get_user
 
 router = Router(name="chat")
 
-# локальные помощники, чтобы не требовать несуществующих функций из services.matching
-async def is_chat_active(uid: int) -> bool:
-    return (await active_peer(uid)) is not None
 
-async def has_required_prefs(uid: int) -> bool:
-    u = await get_user(uid)
-    return bool(u and u[1] and u[2])
+# --------- Вспомогательное ---------
 
-# …остальной код файла оставляем прежним (он уже использует main_menu/admin_reply_menu/stop_countdown) …
-
-async def _menu_for(user_id: int):
-    role = await get_role(user_id)
-    return admin_reply_menu() if (role == "admin" or user_id in cfg.ADMIN_IDS) else main_menu()
-
-
-# Блокируем нажатия «менюшных» кнопок во время активного чата (пусть relay заберёт апдейт)
-@router.message(F.text.in_({
+MENU_TEXTS = {
     "🧭 Режимы", "Режимы",
     "👤 Анкета", "Анкета",
     "🆘 Поддержка", "Поддержка",
@@ -54,36 +36,81 @@ async def _menu_for(user_id: int):
     "💰 Баланс", "Баланс",
     "⭐️ Оценить собеседника", "Оценить собеседника",
     "🚩 Пожаловаться", "Пожаловаться",
-}))
-async def block_menu_buttons_in_chat(m: Message):
-    return
+    "⬅️ В главное меню", "В главное меню",
+    "🛠 Админ", "🛠️ Админ", "Админ",
+    "🔎 Найти собеседника", "Найти собеседника",
+}
 
-@router.message(F.text.regexp(r"^/"))
-async def block_slash_cmds_in_chat(m: Message):
-    if await is_chat_active(m.from_user.id):
+
+class InActiveChat(BaseFilter):
+    """Фильтр: апдейт только когда у пользователя есть активный чат."""
+    async def __call__(self, m: Message) -> bool:
+        return (await active_peer(m.from_user.id)) is not None
+
+
+async def has_required_prefs(uid: int) -> bool:
+    u = await get_user(uid)
+    return bool(u and u[1] and u[2])
+
+
+async def _menu_for(user_id: int):
+    role = await get_role(user_id)
+    return admin_reply_menu() if (role == "admin" or user_id in cfg.ADMIN_IDS) else main_menu()
+
+
+# --------- КНОПКА: «🔎 Найти собеседника» (вне чата) ---------
+
+@router.message(F.text.in_({"🔎 Найти собеседника", "Найти собеседника"}))
+async def start_search(m: Message, state: FSMContext):
+    # уже в активном чате — мягкий блок
+    if await active_peer(m.from_user.id):
         await _materialize_session_if_needed(m.from_user.id)
         await m.answer(cfg.BLOCK_TXT, reply_markup=ReplyKeyboardRemove())
-    return
+        return
+
+    # нужно выбрать пол/кого ищешь
+    if not await has_required_prefs(m.from_user.id):
+        await m.answer("Сначала укажи свой пол и кого ищешь.", reply_markup=gender_self_kb())
+        return
+
+    # ставим в очередь и запускаем подбор
+    u = await get_user(m.from_user.id)
+    await enqueue(m.from_user.id, u[1], u[2])
+    await m.answer("Ищу собеседника…", reply_markup=cancel_kb())
+    await try_match_now(m.from_user.id)
 
 
-@router.message()
+# --------- Блокаторы во время активного чата ---------
+
+@router.message(InActiveChat(), F.text.in_(MENU_TEXTS))
+async def block_menu_buttons_in_chat(m: Message):
+    await _materialize_session_if_needed(m.from_user.id)
+    await m.answer(cfg.BLOCK_TXT, reply_markup=ReplyKeyboardRemove())
+
+
+@router.message(InActiveChat(), F.text.startswith("/"))
+async def block_slash_cmds_in_chat(m: Message):
+    await _materialize_session_if_needed(m.from_user.id)
+    await m.answer(cfg.BLOCK_TXT, reply_markup=ReplyKeyboardRemove())
+
+
+# --------- Релей сообщений и команды !stop/!next/!reveal (во время активного чата) ---------
+
+@router.message(InActiveChat())
 async def relay_chat(m: Message, state: FSMContext):
-    # Обрабатываем только если действительно есть активный чат
-    if not await is_chat_active(m.from_user.id):
-        raise SkipHandler
-
+    # Материализуем RAM-сессию
     materialized = await _materialize_session_if_needed(m.from_user.id)
     if not materialized:
-        raise SkipHandler
+        return
     peer, mid = materialized
 
     # Сброс таймера молчания и фиксация активности
     DEADLINE[mid] = _nowm() + g_inactivity()
     LAST_SHOWN.pop(mid, None)
 
-    now = now_wall()
-    # (восстановление LAST_SEEN делает matching._materialize_session_if_needed)
+    now = now_wall()  # noqa: F841  # (восстановление LAST_SEEN делает _materialize_session_if_needed)
 
+    # Останавливаем обратный отсчёт
     await stop_countdown(mid, m.from_user.id, peer, delete_msgs=True)
     WARNED.pop(mid, None)
     t = COUNTDOWN_TASKS.pop(mid, None)
@@ -91,7 +118,7 @@ async def relay_chat(m: Message, state: FSMContext):
         t.cancel()
     COUNTDOWN_MSGS.pop(mid, None)
 
-    # Команды внутри чата
+    # Внутричатовые команды
     if m.text:
         ttxt = m.text.strip().lower()
         if ttxt == "!stop":
@@ -102,7 +129,10 @@ async def relay_chat(m: Message, state: FSMContext):
             _cleanup_match(mid, a, b)
             await send_post_chat_feedback(a, b, mid)
             await send_post_chat_feedback(b, a, mid)
-            await m.answer("Чат завершён. Нажми «🔎 Найти собеседника», чтобы начать новый.", reply_markup=(await _menu_for(a)))
+            await m.answer(
+                "Чат завершён. Нажми «🔎 Найти собеседника», чтобы начать новый.",
+                reply_markup=(await _menu_for(a))
+            )
             await m.bot.send_message(b, "Собеседник завершил чат.", reply_markup=(await _menu_for(b)))
             return
 
@@ -125,7 +155,11 @@ async def relay_chat(m: Message, state: FSMContext):
             me = await get_user(a)
             await enqueue(a, me[1], me[2])
             await m.answer("Ищу следующего собеседника…", reply_markup=cancel_kb())
-            await m.bot.send_message(b, "Собеседник ушёл к следующему. Ты можешь нажать «🔎 Найти собеседника».", reply_markup=(await _menu_for(b)))
+            await m.bot.send_message(
+                b,
+                "Собеседник ушёл к следующему. Ты можешь нажать «🔎 Найти собеседника».",
+                reply_markup=(await _menu_for(b))
+            )
             await try_match_now(a)
             return
 
@@ -136,6 +170,8 @@ async def relay_chat(m: Message, state: FSMContext):
     # Пересылка контента с маскировкой
     await _relay_payload(m, peer)
 
+
+# --------- Команды !stop/!next/!reveal, если RAM ещё не успел материализоваться ---------
 
 @router.message(F.text.regexp(r"^!(stop|next|reveal)\b"))
 async def bang_commands_when_db_active(m: Message, state: FSMContext):
@@ -160,7 +196,10 @@ async def bang_commands_when_db_active(m: Message, state: FSMContext):
         _cleanup_match(mid, a, b)
         await send_post_chat_feedback(a, b, mid)
         await send_post_chat_feedback(b, a, mid)
-        await m.answer("Чат завершён. Нажми «🔎 Найти собеседника», чтобы начать новый.", reply_markup=(await _menu_for(m.from_user.id)))
+        await m.answer(
+            "Чат завершён. Нажми «🔎 Найти собеседника», чтобы начать новый.",
+            reply_markup=(await _menu_for(m.from_user.id))
+        )
         await m.bot.send_message(b, "Собеседник завершил чат.", reply_markup=(await _menu_for(b)))
         return
 
@@ -173,7 +212,6 @@ async def bang_commands_when_db_active(m: Message, state: FSMContext):
             _cleanup_match(mid, a, b)
             await send_post_chat_feedback(a, b, mid)
             await send_post_chat_feedback(b, a, mid)
-            from app.keyboards.common import gender_self_kb
             await m.answer("Чтобы продолжить поиск, укажи свой пол и кого ищешь.", reply_markup=gender_self_kb())
             await m.bot.send_message(b, "Собеседник завершил чат.", reply_markup=(await _menu_for(b)))
             return
@@ -184,7 +222,11 @@ async def bang_commands_when_db_active(m: Message, state: FSMContext):
         me = await get_user(a)
         await enqueue(a, me[1], me[2])
         await m.answer("Ищу следующего собеседника…", reply_markup=cancel_kb())
-        await m.bot.send_message(b, "Собеседник ушёл к следующему. Ты можешь нажать «🔎 Найти собеседника».", reply_markup=(await _menu_for(b)))
+        await m.bot.send_message(
+            b,
+            "Собеседник ушёл к следующему. Ты можешь нажать «🔎 Найти собеседника».",
+            reply_markup=(await _menu_for(b))
+        )
         await try_match_now(a)
         return
 
@@ -193,11 +235,10 @@ async def bang_commands_when_db_active(m: Message, state: FSMContext):
         return
 
 
-# ---------- Вспомогательные для пересылки и reveal ----------
+# --------- Вспомогательные для пересылки и reveal ---------
 
 async def _relay_payload(m: Message, peer: int):
     from app.services.matching import send_text_anonym, clean_cap
-    # Текст — с анонимайзером
     if m.text:
         await send_text_anonym(peer, m.text)
     elif m.photo:
@@ -219,7 +260,6 @@ async def _relay_payload(m: Message, peer: int):
 
 
 async def _handle_reveal(me_id: int, peer_id: int):
-    # Реализация из bot.py: проверка анкет, флаги a_reveal/b_reveal и показ карточек
     from app.db.core import db
     me = await get_user(me_id)
     peer = await get_user(peer_id)
@@ -230,7 +270,8 @@ async def _handle_reveal(me_id: int, peer_id: int):
 
     async with db() as conn:
         cur = await conn.execute(
-            "SELECT id,a_id,b_id,a_reveal,b_reveal FROM matches WHERE active=1 AND (a_id=? OR b_id=?) ORDER BY id DESC LIMIT 1",
+            "SELECT id,a_id,b_id,a_reveal,b_reveal FROM matches "
+            "WHERE active=1 AND (a_id=? OR b_id=?) ORDER BY id DESC LIMIT 1",
             (me_id, me_id)
         )
         row = await cur.fetchone()
@@ -281,4 +322,6 @@ async def _send_reveal_card(to_id: int, whose_id: int):
             await Bot.get_current().send_photo(to_id, p, protect_content=True)
         await Bot.get_current().send_photo(to_id, photos[-1], caption=txt, protect_content=True, parse_mode=None)
     else:
-        await Bot.get_current().send_message(to_id, txt, parse_mode=None, disable_web_page_preview=True, protect_content=True)
+        await Bot.get_current().send_message(
+            to_id, txt, parse_mode=None, disable_web_page_preview=True, protect_content=True
+        )

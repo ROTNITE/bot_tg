@@ -5,7 +5,7 @@ from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.keyboards.common import admin_settings_kb
+from app.keyboards.admin import admin_settings_kb
 from app.runtime import safe_edit_message, g_support_enabled
 from app.services.admin import require_admin, set_numeric_setting
 

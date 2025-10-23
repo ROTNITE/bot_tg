@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery
 
 from app.runtime import safe_edit_message
 from app.services.admin import require_admin, fetch_stats, render_stats_text
-from app.keyboards.common import admin_main_kb
+from app.keyboards.admin import admin_main_kb  # ← фикс
 
 router = Router(name="admin_stats")
 

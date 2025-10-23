@@ -54,24 +54,3 @@ async def back_to_main_menu(m: Message, state: FSMContext):
     from . import menu_for
     await state.clear()
     await m.answer("Главное меню.", reply_markup=(await menu_for(m.from_user.id)))
-
-
-# Фолбэк-навигация вне чатов/очередей/форм — безопасно возвращает меню
-@router.message()
-async def unknown_router(m: Message, state: FSMContext):
-    # 1) Команды — не трогаем
-    if m.text and m.text.startswith("/"):
-        return
-    # 2) Если пользователь в чате/очереди/форме — отдать другим обработчикам
-    from app.services.matching import active_peer, in_queue
-    if await active_peer(m.from_user.id):
-        return
-    if await in_queue(m.from_user.id):
-        from app.keyboards.common import cancel_kb
-        await m.answer("Идёт поиск. Доступна только «❌ Отмена».", reply_markup=cancel_kb())
-        return
-    if await state.get_state():
-        return
-
-    from . import menu_for
-    await m.answer("Неизвестное действие. Возвращаю в главное меню.", reply_markup=(await menu_for(m.from_user.id)))

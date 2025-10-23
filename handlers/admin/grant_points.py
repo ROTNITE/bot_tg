@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
-from app.keyboards.common import admin_main_kb
+from app.keyboards.admin import admin_main_kb
 from app.services.admin import require_admin, grant_points_and_notify
 from app.states import AdminGrantPoints
 

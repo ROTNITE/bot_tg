@@ -25,21 +25,6 @@ from app.services.feedback import init_feedback
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger("mephi")
 
-
-async def _resolve_channel_id(bot: Bot) -> None:
-    """
-    Пытаемся получить numeric id канала и сохранить его в cfg.RESOLVED_CHANNEL_ID.
-    Если не вышло (бот не админ/нет доступа) — оставляем None, гейт подстрахуется.
-    """
-    try:
-        chat = await bot.get_chat(cfg.CHANNEL_USERNAME)
-        cfg.RESOLVED_CHANNEL_ID = chat.id  # например: -1001234567890
-        log.info("Channel id resolved: %s", cfg.RESOLVED_CHANNEL_ID)
-    except Exception as e:
-        log.warning("Channel resolve failed: %r", e)
-        cfg.RESOLVED_CHANNEL_ID = None
-
-
 async def _fix_stale_chats() -> None:
     """
     Мягко деактивируем слишком старые активные матчи (например, старше суток).
@@ -69,9 +54,6 @@ async def main() -> None:
             os.chmod(cfg.DB_PATH, stat.S_IWRITE | stat.S_IREAD)
     except Exception:
         pass
-
-    # 4) Резолвим id канала (если получится)
-    await _resolve_channel_id(bot)
 
     # 5) Подключаем мидлварь «подписка на канал»
     dp.message.middleware(SubscriptionGuard())

@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.db.core import db
-from app.keyboards.common import admin_admins_kb
+from app.keyboards.admin import admin_admins_kb
 from app.services.admin import require_admin, list_admin_ids
 from app.states import AdminAdmins
 

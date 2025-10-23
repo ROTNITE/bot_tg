@@ -26,6 +26,7 @@ async def menu_for(user_id: int) -> ReplyKeyboardMarkup:
 from .start_help import router as start_help_router
 from .modes_menu import router as modes_router
 from .profile import router as profile_router
+from .reveal_form import router as reveal_router
 from .chat import router as chat_router
 from .support import router as support_router
 from .complaints import router as complaints_router
@@ -37,6 +38,7 @@ router = Router(name="user_root")
 router.include_router(start_help_router)
 router.include_router(modes_router)
 router.include_router(profile_router)
+router.include_router(reveal_router)
 router.include_router(chat_router)
 router.include_router(support_router)
 router.include_router(complaints_router)
@@ -44,4 +46,4 @@ router.include_router(market_router)
 router.include_router(referrals_router)
 router.include_router(fallback_router)
 
-__all__ = ["router", "menu_for"]
+__all__ = ["router", "menu_for", "fallback_router"]

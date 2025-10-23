@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.db.repo import list_items, add_item, del_item
-from app.keyboards.common import admin_shop_kb
+from app.keyboards.admin import admin_shop_kb
 from app.runtime import safe_edit_message
 from app.services.admin import require_admin
 from app.states import AdminAddItem, AdminShopDel

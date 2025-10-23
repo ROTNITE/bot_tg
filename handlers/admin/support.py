@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.keyboards.common import admin_main_kb
+from app.keyboards.admin import admin_main_kb
 from app.services.admin import (
     require_admin, list_open_support_threads, close_support_thread
 )

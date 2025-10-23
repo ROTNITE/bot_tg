@@ -2,6 +2,8 @@
 from __future__ import annotations
 import re
 from html import escape as h
+from aiogram.types import Message, ReplyKeyboardRemove
+from app import config as cfg
 
 import asyncio
 from math import ceil
@@ -450,6 +452,21 @@ async def _get_avg_rating(user_id: int) -> tuple[Optional[float], int]:
         cnt = int(row[1] or 0)
         return avg, cnt
 
+# --- Guard: запрещаем действия, если у пользователя активный чат ---
+
+async def deny_actions_during_chat(m: Message) -> bool:
+    """
+    Если у пользователя активный чат — показываем блок-текст и возвращаем True,
+    иначе False. Удобно использовать как ранний guard в хэндлерах.
+    """
+    if await active_peer(m.from_user.id):
+        try:
+            await m.answer(cfg.BLOCK_TXT, reply_markup=ReplyKeyboardRemove())
+        except Exception:
+            pass
+        return True
+    return False
+
 # ========================= Текст/санитайз и карточки профиля =========================
 
 # Маскируем контакты в тексте (анонимность)
@@ -545,7 +562,8 @@ __all__ = [
     "record_separation", "decay_blocks", "is_recent_blocked",
     "find_partner", "start_match", "try_match_now",
     "_materialize_session_if_needed",
-    # helpers just added
+    # helpers
     "sanitize_text", "send_text_anonym", "clean_cap",
     "format_profile_text", "last_match_info",
+    "deny_actions_during_chat",   # ← добавь это
 ]
