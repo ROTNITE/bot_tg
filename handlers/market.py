@@ -8,11 +8,9 @@ from aiogram.types import Message, CallbackQuery
 from app.db.core import db
 from app.db.repo import (
     list_items, get_item, get_points, add_points,
-    add_status_to_inventory, set_status,
+    add_status_to_inventory, set_status, get_role,
 )
 from app.keyboards.common import shop_kb
-from app.handlers import menu_for
-from app.db.repo import get_role
 
 router = Router(name="market")
 
@@ -20,9 +18,14 @@ router = Router(name="market")
 @router.message(Command("market"))
 async def cmd_market(m: Message):
     if await get_role(m.from_user.id) == "admin":
-        return await m.answer("Ты админ и не можешь покупать. Используй /admin.", reply_markup=(await menu_for(m.from_user.id)))
+        from app.handlers import menu_for  # ← локальный импорт, чтобы не ловить цикл
+        return await m.answer(
+            "Ты админ и не можешь покупать. Используй /admin.",
+            reply_markup=(await menu_for(m.from_user.id))
+        )
     items = await list_items()
     if not items:
+        from app.handlers import menu_for
         return await m.answer("🛍 Магазин пока пуст.", reply_markup=(await menu_for(m.from_user.id)))
     await m.answer("🛍 Магазин статусов и привилегий. Выбери товар:", reply_markup=shop_kb(items))
 
@@ -48,7 +51,6 @@ async def shop_buy(c: CallbackQuery):
     await add_points(c.from_user.id, -price)
     applied_msg = ""
     if type_ == "status":
-        # Кладём в инвентарь и сразу экипируем
         await add_status_to_inventory(c.from_user.id, payload)
         await set_status(c.from_user.id, payload)
         applied_msg = f"Теперь твой статус: «{payload}». (Добавлен в инвентарь)"

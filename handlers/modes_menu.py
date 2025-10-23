@@ -14,8 +14,7 @@ from app.services.subscription_gate import gate_subscription
 router = Router(name="modes_menu")
 # ... остальной код без изменений ...
 
-
-@router.message(F.text == "🧭 Режимы")
+@router.message(F.text.in_({"🧭 Режимы", "Режимы"}))
 async def modes_entry(m: Message, state: FSMContext):
     if (await get_role(m.from_user.id) == "admin") or m.from_user.id in cfg.ADMIN_IDS:
         await m.answer("Этот раздел недоступен админу. Открой панель: /admin", reply_markup=admin_reply_menu())
@@ -31,12 +30,12 @@ async def modes_entry(m: Message, state: FSMContext):
     )
 
 
-@router.message(F.text == "📇 Просмотр анкет")
+@router.message(F.text.in_({"📇 Просмотр анкет", "Просмотр анкет"}))
 async def mode_cards(m: Message):
     await m.answer("Раздел «Просмотр анкет» — <b>в разработке</b>.", reply_markup=modes_kb())
 
 
-@router.message(F.text == "🕵️ Анонимный чат")
+@router.message(F.text.in_({"🕵️ Анонимный чат", "Анонимный чат"}))
 async def mode_anon_chat(m: Message):
     if (await get_role(m.from_user.id) == "admin") or m.from_user.id in cfg.ADMIN_IDS:
         await m.answer("Этот раздел недоступен админу. Открой панель: /admin", reply_markup=admin_reply_menu())
@@ -50,7 +49,7 @@ async def mode_anon_chat(m: Message):
     )
 
 
-@router.message(F.text == "⬅️ В главное меню")
+@router.message(F.text.in_({"⬅️ В главное меню", "В главное меню"}))
 async def back_to_main_menu(m: Message, state: FSMContext):
     from . import menu_for
     await state.clear()

@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 from aiogram import Router, F
-from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardRemove  # ⬅️ ReplyKeyboardRemove берём из aiogram.types
+try:
+    # aiogram v3
+    from aiogram.dispatcher.event.bases import SkipHandler
+except Exception:
+    # на всякий случай, если у тебя v2
+    from aiogram.exceptions import SkipHandler  # type: ignore
 
-from app.keyboards.common import cancel_kb, main_menu
+from app.keyboards.common import cancel_kb, main_menu, gender_self_kb
 from app.keyboards.admin import admin_reply_menu  # ⬅️
 from app import config as cfg
 
+from app.services.feedback import send_post_chat_feedback
 from app.services.matching import (
     active_peer, _materialize_session_if_needed, end_current_chat,
     record_separation, enqueue, try_match_now,
@@ -39,21 +45,25 @@ async def _menu_for(user_id: int):
 
 
 # Блокируем нажатия «менюшных» кнопок во время активного чата (пусть relay заберёт апдейт)
-@router.message(F.text.in_({"🧭 Режимы", "👤 Анкета", "🆘 Поддержка", "📇 Просмотр анкет",
-                            "🕵️ Анонимный чат", "💰 Баланс", "⭐️ Оценить собеседника", "🚩 Пожаловаться"}))
+@router.message(F.text.in_({
+    "🧭 Режимы", "Режимы",
+    "👤 Анкета", "Анкета",
+    "🆘 Поддержка", "Поддержка",
+    "📇 Просмотр анкет", "Просмотр анкет",
+    "🕵️ Анонимный чат", "Анонимный чат",
+    "💰 Баланс", "Баланс",
+    "⭐️ Оценить собеседника", "Оценить собеседника",
+    "🚩 Пожаловаться", "Пожаловаться",
+}))
 async def block_menu_buttons_in_chat(m: Message):
-    if await is_chat_active(m.from_user.id):
-        raise SkipHandler
-    raise SkipHandler
-
+    return
 
 @router.message(F.text.regexp(r"^/"))
 async def block_slash_cmds_in_chat(m: Message):
     if await is_chat_active(m.from_user.id):
         await _materialize_session_if_needed(m.from_user.id)
         await m.answer(cfg.BLOCK_TXT, reply_markup=ReplyKeyboardRemove())
-        return
-    raise SkipHandler
+    return
 
 
 @router.message()

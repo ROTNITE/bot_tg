@@ -27,7 +27,7 @@ router = Router(name="profile")
 # заменить на `reply_markup=admin_reply_menu()`.
 
 @router.message(Command("profile"))
-@router.message(F.text == "👤 Анкета")
+@router.message(F.text.in_({"👤 Анкета", "Анкета"}))
 async def show_or_edit_reveal(m: Message, state: FSMContext):
     # Админам профиль (анкеты) не доступен — только панель
     from app.db.repo import get_role
@@ -69,7 +69,7 @@ async def show_or_edit_reveal(m: Message, state: FSMContext):
     await m.answer("Что дальше?", reply_markup=reveal_entry_menu())
 
 
-@router.message(F.text == "✏️ Заполнить / Перезаполнить")
+@router.message(F.text.in_({"✏️ Заполнить / Перезаполнить", "Заполнить / Перезаполнить"}))
 async def fill_or_refill_btn(m: Message, state: FSMContext):
     from app.services.subscription_gate import gate_subscription
     if not await gate_subscription(m):

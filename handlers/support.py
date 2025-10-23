@@ -15,7 +15,7 @@ router = Router(name="support")
 # ... остальной код без изменений ...
 
 
-@router.message(F.text == "🆘 Поддержка")
+@router.message(F.text.in_({"🆘 Поддержка", "Поддержка"}))
 async def support_entry(m: Message, state: FSMContext):
     from app.db.repo import get_role
     role = await get_role(m.from_user.id)
